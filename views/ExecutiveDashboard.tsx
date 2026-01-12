@@ -1,43 +1,60 @@
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
-  AreaChart, Area 
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer 
 } from 'recharts';
 import { Activity, Shield, Zap, Box } from 'lucide-react';
 import KPICard from '../components/KPICard';
 import { COLORS } from '../constants';
-
-const trendData = [
-  { name: '10am', val: 12 }, { name: '11am', val: 18 }, { name: '12pm', val: 14 },
-  { name: '1pm', val: 22 }, { name: '2pm', val: 32 }, { name: '3pm', val: 28 },
-  { name: '4pm', val: 30 }, { name: '5pm', val: 24 }
-];
-
-const hostMap = Array.from({ length: 40 }, (_, i) => ({
-  id: `H-${i + 1}`,
-  status: Math.random() > 0.9 ? 'critical' : Math.random() > 0.75 ? 'elevated' : 'nominal'
-}));
+import { backend } from '../services/backend';
 
 const ExecutiveDashboard: React.FC = () => {
+  const [alerts, setAlerts] = useState(backend.getAlerts());
+  const [events, setEvents] = useState(backend.getEvents());
+
+  useEffect(() => {
+    const unsubscribe = backend.subscribe(() => {
+      setAlerts(backend.getAlerts());
+      setEvents(backend.getEvents());
+    });
+    return unsubscribe;
+  }, []);
+
+  // Compute trend data dynamically
+  const trendData = alerts.slice(0, 8).map((a, i) => ({
+    name: a.timestamp,
+    val: alerts.length - i
+  })).reverse();
+
+  const criticalityStats = {
+    critical: alerts.filter(a => a.severity === 'CRITICAL').length,
+    high: alerts.filter(a => a.severity === 'HIGH').length,
+    new: alerts.filter(a => a.status === 'NEW').length
+  };
+
+  const hostMap = Array.from({ length: 40 }, (_, i) => ({
+    id: `H-${i + 1}`,
+    status: Math.random() > 0.95 ? 'critical' : Math.random() > 0.8 ? 'elevated' : 'nominal'
+  }));
+
   return (
-    <div className="max-w-7xl mx-auto space-y-10 animate-in fade-in duration-700">
+    <div className="max-w-7xl mx-auto space-y-10 animate-in fade-in duration-1000">
       {/* KPI Section */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <KPICard title="Active Assets" value="2,401" icon={Box} color="sky" trend="12%" trendUp />
-        <KPICard title="Security Score" value="94" icon={Shield} color="emerald" trend="2pts" trendUp />
-        <KPICard title="Threat Activity" value="12" icon={Zap} color="rose" trend="5%" trendUp={false} />
-        <KPICard title="System Pulse" value="99.9" icon={Activity} color="amber" />
+        <KPICard title="Total Events" value={events.length} icon={Box} color="sky" trend="Live" trendUp />
+        <KPICard title="Critical Alerts" value={criticalityStats.critical} icon={Shield} color="rose" />
+        <KPICard title="High Confidence" value={criticalityStats.high} icon={Zap} color="emerald" />
+        <KPICard title="Active Cases" value={criticalityStats.new} icon={Activity} color="amber" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Trend Visualization */}
         <div className={`${COLORS.panel} lg:col-span-2 p-8 rounded-[2rem] border ${COLORS.border} shadow-sm`}>
           <div className="flex items-center justify-between mb-8">
-            <h3 className="text-sm font-semibold text-slate-400">Activity Pulse</h3>
+            <h3 className="text-sm font-semibold text-slate-400">Alert Velocity</h3>
             <div className="flex gap-2">
               <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></span>
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Real-time</span>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Real-time Ingestion</span>
             </div>
           </div>
           <div className="h-64">
@@ -50,7 +67,7 @@ const ExecutiveDashboard: React.FC = () => {
                   </linearGradient>
                 </defs>
                 <XAxis dataKey="name" hide />
-                <YAxis hide domain={['dataMin - 5', 'dataMax + 5']} />
+                <YAxis hide domain={['dataMin - 2', 'dataMax + 2']} />
                 <Tooltip 
                   contentStyle={{ 
                     backgroundColor: 'rgba(255,255,255,0.9)', 
@@ -67,19 +84,19 @@ const ExecutiveDashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* Minimal Stats */}
+        {/* Dynamic Vector Stats */}
         <div className={`${COLORS.panel} p-8 rounded-[2rem] border ${COLORS.border} shadow-sm flex flex-col justify-between`}>
           <h3 className="text-sm font-semibold text-slate-400 mb-6">Threat Vectors</h3>
           <div className="space-y-6">
             {[
-              { label: 'PowerShell', val: 78, color: 'bg-emerald-500' },
-              { label: 'WMI Exec', val: 45, color: 'bg-sky-500' },
-              { label: 'Registry', val: 23, color: 'bg-amber-500' }
+              { label: 'PowerShell', val: Math.min(100, (alerts.filter(a => a.commandLine.toLowerCase().includes('powershell')).length / (alerts.length || 1)) * 100), color: 'bg-emerald-500' },
+              { label: 'Obfuscation', val: Math.min(100, (alerts.filter(a => a.ruleTriggered.includes('Encoded')).length / (alerts.length || 1)) * 100), color: 'bg-sky-500' },
+              { label: 'Suspicious Parent', val: Math.min(100, (alerts.filter(a => a.ruleTriggered.includes('Office')).length / (alerts.length || 1)) * 100), color: 'bg-amber-500' }
             ].map(item => (
               <div key={item.label} className="space-y-2">
                 <div className="flex justify-between text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                   <span>{item.label}</span>
-                  <span>{item.val}%</span>
+                  <span>{Math.round(item.val)}%</span>
                 </div>
                 <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
                   <div className={`h-full ${item.color} rounded-full transition-all duration-1000`} style={{ width: `${item.val}%` }}></div>
@@ -88,22 +105,17 @@ const ExecutiveDashboard: React.FC = () => {
             ))}
           </div>
           <div className="mt-8 pt-6 border-t border-slate-100 dark:border-slate-800/50">
-            <p className="text-[10px] text-slate-500 italic">Data processed via Sentinel Engine v2.4.1</p>
+            <p className="text-[10px] text-slate-500 italic">Total Alerts Recorded: {alerts.length}</p>
           </div>
         </div>
       </div>
 
-      {/* Host Risk Map - Minimal & Pretty Version */}
+      {/* Host Risk Map */}
       <div className={`${COLORS.panel} p-8 rounded-[2rem] border ${COLORS.border} shadow-sm`}>
         <div className="flex justify-between items-center mb-10">
           <div className="space-y-1">
             <h3 className="text-lg font-semibold tracking-tight">Host Risk Distribution</h3>
             <p className="text-xs text-slate-400">Spatial overview of terminal criticality</p>
-          </div>
-          <div className="flex gap-6 text-[10px] font-bold uppercase tracking-widest text-slate-400">
-            <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.4)]"></span> Critical</div>
-            <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-orange-500 shadow-[0_0_8px_rgba(249,115,22,0.4)]"></span> Elevated</div>
-            <div className="flex items-center gap-2"><span className="w-2.5 h-2.5 rounded-full bg-slate-200 dark:bg-slate-800"></span> Nominal</div>
           </div>
         </div>
         
